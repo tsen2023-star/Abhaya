@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: abhaya-backend
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: abhaya-db
+          property: connectionString
+
+databases:
+  - name: abhaya-db
+    databaseName: abhaya
+    user: abhaya_user
+    plan: free # Change to standard for production
