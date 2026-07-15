@@ -1,15 +1,10 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 from typing import List
 import json
-
-from .database import engine, get_db
+from .database import get_db
 from . import models
 from .services import alerts, routing, audio_inference, nlp_clustering
-
-# Create the database tables
-models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Abhaya API", description="Backend for the Abhaya safety companion")
 
@@ -43,15 +38,13 @@ def health_check():
     return {"status": "Abhaya Backend is active and fearless"}
 
 @app.post("/api/sos/trigger")
-def trigger_sos(user_id: str, lat: float, lon: float, trigger_method: str, db: Session = Depends(get_db)):
+def trigger_sos(user_id: str, lat: float, lon: float, trigger_method: str, db = Depends(get_db)):
     new_alert = models.SOSAlert(
         user_id=user_id, latitude=lat, longitude=lon, trigger_method=trigger_method
     )
-    db.add(new_alert)
-    db.commit()
-    db.refresh(new_alert)
+    result = db.sos_alerts.insert_one(new_alert.model_dump())
     alerts.send_emergency_sms(user_id=user_id, lat=lat, lon=lon)
-    return {"status": "SOS Logged and Alerts Sent", "alert_id": new_alert.id}
+    return {"status": "SOS Logged and Alerts Sent", "alert_id": str(result.inserted_id)}
 
 @app.post("/api/sos/fake-call")
 def trigger_fake_call(user_id: str):
@@ -72,21 +65,19 @@ async def detect_audio_distress(file: UploadFile = File(...)):
 # --- NEW: NLP Crowd-Sourced Alerts ---
 
 @app.post("/api/reports/submit")
-def submit_incident_report(lat: float, lon: float, description: str, db: Session = Depends(get_db)):
+def submit_incident_report(lat: float, lon: float, description: str, db = Depends(get_db)):
     new_report = models.IncidentReport(latitude=lat, longitude=lon, description=description)
-    db.add(new_report)
-    db.commit()
-    db.refresh(new_report)
-    return {"status": "Report submitted anonymously", "report_id": new_report.id}
+    result = db.incident_reports.insert_one(new_report.model_dump())
+    return {"status": "Report submitted anonymously", "report_id": str(result.inserted_id)}
 
 @app.get("/api/reports/hotspots")
-def get_verified_hotspots(db: Session = Depends(get_db)):
+def get_verified_hotspots(db = Depends(get_db)):
     # Fetch all reports (In production, you'd filter this to only the last 24-48 hours)
-    all_reports = db.query(models.IncidentReport).all()
+    all_reports = list(db.incident_reports.find())
     
     # Convert DB objects to standard dictionaries for the ML model
     reports_data = [
-        {"id": r.id, "description": r.description, "latitude": r.latitude, "longitude": r.longitude} 
+        {"id": str(r["_id"]), "description": r["description"], "latitude": r["latitude"], "longitude": r["longitude"]} 
         for r in all_reports
     ]
     
