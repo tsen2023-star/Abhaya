@@ -13,3 +13,19 @@ class IncidentReport(BaseModel):
     longitude: float
     description: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class UserCreate(BaseModel):
+    name: str
+    phone_number: str
+    emergency_contact: str
+    password: str
+
+class UserLogin(BaseModel):
+    phone_number: str
+    password: str
+
+class UserResponse(BaseModel):
+    user_id: str
+    name: str
+    phone_number: str
+    emergency_contact: str

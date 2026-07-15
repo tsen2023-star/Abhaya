@@ -2,6 +2,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, File, Uplo
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 import json
+import hashlib
 from .database import get_db
 from . import models
 from .services import alerts, routing, audio_inference, nlp_clustering
@@ -36,6 +37,51 @@ manager = ConnectionManager()
 @app.get("/")
 def health_check():
     return {"status": "Abhaya Backend is active and fearless"}
+
+# --- AUTHENTICATION ---
+
+def hash_password(password: str) -> str:
+    # A simple SHA-256 hash for prototype purposes
+    return hashlib.sha256(password.encode()).hexdigest()
+
+@app.post("/api/auth/signup", response_model=models.UserResponse)
+def signup(user: models.UserCreate, db = Depends(get_db)):
+    # Check if user already exists
+    if db.users.find_one({"phone_number": user.phone_number}):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Phone number already registered")
+    
+    user_dict = user.model_dump()
+    user_dict["password_hash"] = hash_password(user_dict.pop("password"))
+    
+    result = db.users.insert_one(user_dict)
+    
+    return models.UserResponse(
+        user_id=str(result.inserted_id),
+        name=user.name,
+        phone_number=user.phone_number,
+        emergency_contact=user.emergency_contact
+    )
+
+@app.post("/api/auth/login", response_model=models.UserResponse)
+def login(user: models.UserLogin, db = Depends(get_db)):
+    db_user = db.users.find_one({"phone_number": user.phone_number})
+    if not db_user:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid phone number or password")
+        
+    if db_user["password_hash"] != hash_password(user.password):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid phone number or password")
+        
+    return models.UserResponse(
+        user_id=str(db_user["_id"]),
+        name=db_user["name"],
+        phone_number=db_user["phone_number"],
+        emergency_contact=db_user["emergency_contact"]
+    )
+
+# --- SOS ACTIONS ---
 
 @app.post("/api/sos/trigger")
 def trigger_sos(user_id: str, lat: float, lon: float, trigger_method: str, db = Depends(get_db)):
