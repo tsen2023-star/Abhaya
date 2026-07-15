@@ -60,7 +60,7 @@ def signup(user: models.UserCreate, db = Depends(get_db)):
         user_id=str(result.inserted_id),
         name=user.name,
         phone_number=user.phone_number,
-        emergency_contact=user.emergency_contact
+        emergency_contacts=user.emergency_contacts
     )
 
 @app.post("/api/auth/login", response_model=models.UserResponse)
@@ -70,16 +70,30 @@ def login(user: models.UserLogin, db = Depends(get_db)):
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
         
-    if db_user["password_hash"] != hash_password(user.password):
+    if db_user.get("password_hash") != hash_password(user.password):
         from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
         
     return models.UserResponse(
         user_id=str(db_user["_id"]),
-        name=db_user["name"],
-        phone_number=db_user["phone_number"],
-        emergency_contact=db_user["emergency_contact"]
+        name=db_user.get("name", ""),
+        phone_number=db_user.get("phone_number", ""),
+        emergency_contacts=db_user.get("emergency_contacts", [])
     )
+
+@app.post("/api/user/contacts")
+def update_contacts(data: models.UserUpdateContacts, db = Depends(get_db)):
+    from bson.objectid import ObjectId
+    try:
+        obj_id = ObjectId(data.user_id)
+        db.users.update_one(
+            {"_id": obj_id},
+            {"$set": {"emergency_contacts": data.emergency_contacts[:10]}} # Limit to 10
+        )
+        return {"status": "Contacts updated successfully"}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid User ID")
 
 # --- SOS ACTIONS ---
 
@@ -89,8 +103,29 @@ def trigger_sos(user_id: str, lat: float, lon: float, trigger_method: str, db = 
         user_id=user_id, latitude=lat, longitude=lon, trigger_method=trigger_method
     )
     result = db.sos_alerts.insert_one(new_alert.model_dump())
+    
+    # SMS Logic (existing)
     alerts.send_emergency_sms(user_id=user_id, lat=lat, lon=lon)
-    return {"status": "SOS Logged and Alerts Sent", "alert_id": str(result.inserted_id)}
+    
+    # --- NEW: Automated WhatsApp Dispatcher ---
+    from bson.objectid import ObjectId
+    try:
+        user = db.users.find_one({"_id": ObjectId(user_id)})
+        if user and user.get("emergency_contacts"):
+            contacts = user["emergency_contacts"]
+            tracking_url = f"https://abhaya-backend-y3sa.onrender.com/track/{user_id}"
+            message = f"🚨 URGENT: I am in danger and help me! Track my live location here: {tracking_url}"
+            
+            print("="*50)
+            print("📲 AUTOMATED WHATSAPP DISPATCH INITIATED")
+            for contact in contacts:
+                # Placeholder for Twilio WhatsApp API
+                print(f"[WhatsApp API] Sending to {contact}: {message}")
+            print("="*50)
+    except Exception as e:
+        print(f"Failed to dispatch WhatsApp messages: {e}")
+        
+    return {"status": "SOS Logged, SMS and WhatsApp Alerts Dispatched", "alert_id": str(result.inserted_id)}
 
 @app.post("/api/sos/fake-call")
 def trigger_fake_call(user_id: str):

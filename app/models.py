@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
+from typing import List
 
 class SOSAlert(BaseModel):
     user_id: str
@@ -17,8 +18,8 @@ class IncidentReport(BaseModel):
 class UserCreate(BaseModel):
     name: str
     phone_number: str
-    emergency_contact: str
     password: str
+    emergency_contacts: List[str] = []
 
 class UserLogin(BaseModel):
     phone_number: str
@@ -28,4 +29,8 @@ class UserResponse(BaseModel):
     user_id: str
     name: str
     phone_number: str
-    emergency_contact: str
+    emergency_contacts: List[str] = []
+
+class UserUpdateContacts(BaseModel):
+    user_id: str
+    emergency_contacts: List[str]
